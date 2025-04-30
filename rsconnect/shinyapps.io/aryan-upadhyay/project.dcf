@@ -1,0 +1,12 @@
+name: project
+title: project
+username: aryan-upadhyay
+account: aryan-upadhyay
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 14656440
+bundleId: 10208200
+url: https://aryan-upadhyay.shinyapps.io/project/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

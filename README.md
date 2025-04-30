@@ -1,4 +1,5 @@
 # 🧠 Brain MRI Tumor Detector (Shiny App)
+You can access this project at the link https://aryan-upadhyay.shinyapps.io/project/
 
 This is an interactive R Shiny application that allows users to upload Brain MRI images and classify them as **tumor** or **non-tumor** using trained machine learning models.
 

@@ -1,0 +1,162 @@
+# Brain MRI Tumor Detection Project 
+
+# Load all the R libraries needed for this project:
+# These libraries cover tasks like image loading, data cleaning, plotting, building machine learning models, and evaluating performance.
+library(imager)       # Load and preprocess image files
+library(tidyverse)    # Data wrangling and ggplot2 visualization tools
+library(rpart)        # Create Decision Tree models
+library(rpart.plot)   # Visualize Decision Trees with nice plots
+library(rsample)      # Split datasets into training and testing sets
+library(caret)        # Perform cross-validation, training, and confusion matrix evaluation
+library(klaR)         # Build and predict Naive Bayes models
+library(e1071)        # Additional machine learning functions (used internally by klaR and caret)
+library(pROC)         # Generate ROC curves for model comparison
+library(randomForest) # Build Random Forest models
+library(GGally)       # Create ggpairs plots (EDA tools)
+library(reshape2)     # Help with reshaping data for plotting (e.g., correlation heatmaps)
+
+# Set the working directory where the 'yes' and 'no' image folders are located.
+setwd("/Users/aryan/desktop/work/data101/project")
+
+# Step 1: Load the paths of all MRI images from 'yes' (tumor) and 'no' (no tumor) folders
+image_paths_yes <- list.files(path = "yes", full.names = TRUE)
+image_paths_no  <- list.files(path = "no",  full.names = TRUE)
+
+# Step 2: Create labels for each image based on its folder
+labels          <- c(rep("yes", length(image_paths_yes)), rep("no", length(image_paths_no)))
+image_paths     <- c(image_paths_yes, image_paths_no)
+
+# Step 3: Define a feature extraction function
+# For each MRI image, calculate basic pixel statistics (mean, standard deviation, minimum value, maximum value).
+extract_features <- function(img_path) {
+  img <- load.image(img_path)              # Load the image
+  if (spectrum(img) == 3) img <- grayscale(img)  # Convert to grayscale if it has 3 color channels
+  v <- as.vector(img)                      # Flatten the image into a numeric vector
+  c(mean = mean(v), sd = sd(v), min = min(v), max = max(v))  # Return extracted features
+}
+
+# Step 4: Apply feature extraction to all images and build a feature matrix
+features_list   <- lapply(image_paths, extract_features)
+features_matrix <- do.call(rbind, features_list)
+
+# Step 5: Create a dataframe combining the features and the corresponding labels
+mri_data        <- as.data.frame(features_matrix)
+mri_data$label  <- as.factor(labels)
+
+#Quick Data Summary#
+# Display a quick textual summary of the dataset: number of rows, number of features, feature names, and label distribution.
+cat("\n--- Quick Data Summary ---\n")
+cat("Number of Observations:", nrow(mri_data), "\n")
+cat("Number of Features (excluding label):", ncol(mri_data) - 1, "\n")
+cat("Feature Names:", paste(names(mri_data)[1:4], collapse = ", "), "\n")
+cat("Label Classes:", paste(levels(mri_data$label), collapse = ", "), "\n")
+cat("Number of Tumor Images:", sum(mri_data$label == "yes"), "\n")
+cat("Number of Non-Tumor Images:", sum(mri_data$label == "no"), "\n")
+cat("-----------------------------------\n\n")
+
+# Step 6: Explore the data structure and basic statistics
+print(summary(mri_data))
+print(str(mri_data))
+
+# Step 7: Create a bar plot to visualize the number of tumor and non-tumor images
+barplot(table(mri_data$label), col = c("red", "blue"), main = "Tumor vs No Tumor", ylab = "Count")
+
+# Step 8: Generate boxplots for each feature to compare distributions between tumor and non-tumor cases
+for (f in names(mri_data)[1:4]) {
+  p <- ggplot(mri_data, aes_string(x = "label", y = f, fill = "label")) +
+    geom_boxplot() +
+    labs(title = paste("Boxplot of", f, "by Label"), x = "Label", y = f) +
+    theme_minimal() +
+    scale_fill_manual(values = c("red", "blue")) +
+    theme(legend.position = "none")
+  print(p)
+}
+
+# Step 9: Check for high correlations between features and remove any redundant features (if correlation > 0.9)
+feat_names    <- names(mri_data)[1:4]
+corr_mat      <- cor(mri_data[, feat_names])
+high_corr_idx <- findCorrelation(corr_mat, cutoff = 0.9)
+selected_features <- if (length(high_corr_idx) > 0) feat_names[-high_corr_idx] else feat_names
+cat("Selected features:", paste(selected_features, collapse = ", "), "\n")
+
+# Step 10: Keep only the selected features and the label for model building
+mri_data_sel <- mri_data[, c(selected_features, "label"), drop = FALSE]
+
+# Step 11: Split the dataset into 80% training and 20% testing to evaluate model generalization
+set.seed(123)
+split <- initial_split(mri_data_sel, prop = 0.8)
+train <- training(split)
+test  <- testing(split)
+
+# Step 12: Build an initial very large Decision Tree to capture patterns without early pruning
+large_tree <- rpart(label ~ ., data = train, method = "class", control = rpart.control(cp = 0.0001))
+print(large_tree)
+rpart.plot(large_tree, main = "Original Decision Tree")
+
+# Step 13: Identify the best complexity parameter (cp) for pruning
+printcp(large_tree)
+best_cp    <- large_tree$cptable[which.min(large_tree$cptable[, "xerror"]), "CP"]
+
+# Step 14: Prune the Decision Tree to avoid overfitting
+pruned_tree <- prune(large_tree, cp = best_cp)
+print(pruned_tree)
+rpart.plot(pruned_tree, main = "Pruned Decision Tree")
+
+# Step 15: Predict tumor presence on the test set using the pruned Decision Tree
+pred_tree <- predict(pruned_tree, test, type = "class")
+cm_tree   <- confusionMatrix(pred_tree, test$label)
+print(cm_tree)
+
+#Naive Bayes Model#
+# Step 16: Train a Naive Bayes model on the training data and evaluate it on the test set
+bn_model <- NaiveBayes(label ~ ., data = train)
+pred_nb   <- predict(bn_model, test)
+cm_nb     <- confusionMatrix(pred_nb$class, test$label)
+print(cm_nb)
+
+#Random Forest Model#
+# Step 17: Train a Random Forest classifier with 500 trees for more robust predictions
+set.seed(123)
+rf_model <- randomForest(label ~ ., data = train, ntree = 500, importance = TRUE)
+
+# Step 18: Predict on the test set and evaluate Random Forest performance
+pred_rf  <- predict(rf_model, test)
+cm_rf    <- confusionMatrix(pred_rf, test$label)
+print(cm_rf)
+
+# Step 19: Plot feature importance based on Random Forest
+varImpPlot(rf_model, main = "Variable Importance - Random Forest")
+
+#ROC Curve Comparison#
+# Step 20: Compare the ROC curves of Decision Tree and Naive Bayes classifiers
+tree_probs <- predict(pruned_tree, test, type = "prob")[, "yes"]
+tree_roc   <- roc(response = test$label, predictor = tree_probs)
+plot(tree_roc, main = "ROC Curve Comparison", col = "black")
+
+bn_probs   <- pred_nb$posterior[, "yes"]
+bn_roc     <- roc(response = test$label, predictor = bn_probs)
+plot(bn_roc, add = TRUE, col = "blue")
+
+# Step 21: Add a legend to the ROC plot
+legend("bottomright", legend = c("Decision Tree", "Naive Bayes"), col = c("black", "blue"), lwd = 2)
+
+#10-Fold Cross-Validation#
+# Step 22: Perform 10-fold cross-validation for the Decision Tree and Naive Bayes models
+ctrl      <- trainControl(method = "cv", number = 10)
+cross_tree <- train(label ~ ., data = train, method = "rpart", trControl = ctrl)
+print(cross_tree)
+
+cross_nb   <- train(label ~ ., data = train, method = "nb", trControl = ctrl)
+print(cross_nb)
+
+# Step 23: Based on cross-validation, manually prune the Decision Tree using a chosen cp value
+new_tree <- rpart(label ~ ., data = train, method = "class", control = rpart.control(cp = 0.005))
+rpart.plot(new_tree, main = "Manually Pruned Decision Tree with cp = 0.005")
+
+# Step 24: Predict again using the manually pruned tree and evaluate the confusion matrix
+pred_new_tree <- predict(new_tree, test, type = "class")
+cm_new_tree <- confusionMatrix(pred_new_tree, test$label)
+print(cm_new_tree)
+
+save(rf_model, pruned_tree, bn_model, file = "models.RData")
+

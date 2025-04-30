@@ -3,6 +3,8 @@ You can access this project at the link https://aryan-upadhyay.shinyapps.io/proj
 
 This is an interactive R Shiny application that allows users to upload Brain MRI images and classify them as **tumor** or **non-tumor** using trained machine learning models.
 
+The brain_tumor_dataset contains the pictures used to train the model, and can be used for example.
+
 <img src="brain_banner.png" alt="Brain Banner" width="300" align="center"/>
 
 ---
